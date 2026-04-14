@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>영단어 퀴즈 챌린지</title>
+    <style>
+        :root {
+            --primary: #4a90e2;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --dark: #2c3e50;
+            --light: #f8f9fa;
+        }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            width: 90%;
+            max-width: 500px;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .hidden { display: none !important; }
+        
+        /* Quiz UI */
+        .header { display: flex; justify-content: space-between; margin-bottom: 20px; font-weight: bold; color: var(--dark); }
+        .word { font-size: 2.5rem; margin-bottom: 1.5rem; color: var(--primary); }
+        .options { display: grid; gap: 10px; }
+        .btn {
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            font-size: 1.1rem;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #f0f7ff; border-color: var(--primary); }
+        .correct { background: var(--success) !important; color: white; border-color: var(--success); }
+        .wrong { background: var(--danger) !important; color: white; border-color: var(--danger); }
+
+        /* Ranking Table */
+        table { width: 100%; margin-top: 15px; border-collapse: collapse; }
+        th, td { padding: 10px; border-bottom: 1px solid #eee; }
+        
+        input {
+            width: 80%; padding: 10px; margin: 10px 0;
+            border: 1px solid #ddd; border-radius: 5px;
+        }
+        .main-btn {
+            background: var(--primary); color: white; border: none;
+            padding: 12px 25px; border-radius: 5px; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- 메인 화면 -->
+        <div id="start-screen">
+            <h1>영단어 퀴즈</h1>
+            <p>10문제를 풀고 랭킹에 도전하세요!</p>
+            <button class="main-btn" onclick="startGame()">게임 시작</button>
+        </div>
+
+        <!-- 퀴즈 화면 -->
+        <div id="quiz-screen" class="hidden">
+            <div class="header">
+                <span id="progress">1/10</span>
+                <span id="score-display">점수: 0</span>
+            </div>
+            <div class="word" id="question-word">Apple</div>
+            <div class="options" id="options-container">
+                <!-- 버튼이 동적으로 생성됨 -->
+            </div>
+        </div>
+
+        <!-- 결과 및 닉네임 입력 -->
+        <div id="result-screen" class="hidden">
+            <h2>게임 완료!</h2>
+            <p>최종 점수: <span id="final-score">0</span>점</p>
+            <input type="text" id="nickname" placeholder="닉네임 입력 (최대 8자)" maxlength="8">
+            <br>
+            <button class="main-btn" id="save-btn" onclick="saveScore()">점수 저장 및 랭킹 보기</button>
+        </div>
+
+        <!-- 랭킹 화면 -->
+        <div id="ranking-screen" class="hidden">
+            <h2>Top 5 랭킹</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>순위</th>
+                        <th>닉네임</th>
+                        <th>점수</th>
+                    </tr>
+                </thead>
+                <tbody id="ranking-body"></tbody>
+            </table>
+            <br>
+            <button class="main-btn" onclick="location.reload()">다시 하기</button>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // YOUR_CONFIG_HERE
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // --- 게임 데이터 ---
+        const quizData = [
+            { w: "Consistent", a: "일관된", o: ["다양한", "일관된", "빠른", "거대한"] },
+            { w: "Analyze", a: "분석하다", o: ["분석하다", "창조하다", "파괴하다", "기억하다"] },
+            { w: "Vivid", a: "생생한", o: ["흐릿한", "지루한", "생생한", "어두운"] },
+            { w: "Determine", a: "결정하다", o: ["지연하다", "결정하다", "포기하다", "의심하다"] },
+            { w: "Essential", a: "필수적인", o: ["사소한", "필수적인", "비싼", "위험한"] },
+            { w: "Precise", a: "정확한", o: ["대략적인", "복잡한", "정확한", "모호한"] },
+            { w: "Obvious", a: "분명한", o: ["분명한", "숨겨진", "어려운", "기괴한"] },
+            { w: "Acquire", a: "습득하다", o: ["버리다", "잃다", "습득하다", "빌려주다"] },
+            { w: "Efficient", a: "효율적인", o: ["효율적인", "느린", "복잡한", "게으른"] },
+            { w: "Incredible", a: "믿기 힘든", o: ["평범한", "작은", "믿기 힘든", "지루한"] }
+        ];
+
+        let currentIdx = 0;
+        let score = 0;
+        let canClick = true;
+
+        // --- 게임 로직 함수들 (전역 범위로 설정) ---
+        window.startGame = () => {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('quiz-screen').classList.remove('hidden');
+            showQuestion();
+        };
+
+        function showQuestion() {
+            canClick = true;
+            const q = quizData[currentIdx];
+            document.getElementById('progress').innerText = `${currentIdx + 1}/10`;
+            document.getElementById('question-word').innerText = q.w;
+            
+            const container = document.getElementById('options-container');
+            container.innerHTML = '';
+            
+            q.o.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = 'btn';
+                btn.innerText = opt;
+                btn.onclick = () => checkAnswer(opt, btn);
+                container.appendChild(btn);
+            });
+        }
+
+        function checkAnswer(selected, btn) {
+            if (!canClick) return;
+            canClick = false;
+
+            const correct = quizData[currentIdx].a;
+            if (selected === correct) {
+                btn.classList.add('correct');
+                score += 10;
+                document.getElementById('score-display').innerText = `점수: ${score}`;
+            } else {
+                btn.classList.add('wrong');
+                // 정답 버튼도 표시
+                Array.from(document.getElementsByClassName('btn')).forEach(b => {
+                    if (b.innerText === correct) b.classList.add('correct');
+                });
+            }
+
+            setTimeout(() => {
+                currentIdx++;
+                if (currentIdx < 10) {
+                    showQuestion();
+                } else {
+                    showResult();
+                }
+            }, 1200);
+        }
+
+        function showResult() {
+            document.getElementById('quiz-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.remove('hidden');
+            document.getElementById('final-score').innerText = score;
+        }
+
+        window.saveScore = async () => {
+            const nickname = document.getElementById('nickname').value.trim();
+            if (!nickname) return alert("닉네임을 입력해주세요!");
+            
+            const saveBtn = document.getElementById('save-btn');
+            saveBtn.disabled = true;
+            saveBtn.innerText = "저장 중...";
+
+            try {
+                await addDoc(collection(db, "scores"), {
+                    nickname: nickname,
+                    score: score,
+                    timestamp: serverTimestamp()
+                });
+                loadRanking();
+            } catch (e) {
+                console.error("Error saving score: ", e);
+                alert("저장 실패");
+                saveBtn.disabled = false;
+            }
+        };
+
+        async function loadRanking() {
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('ranking-screen').classList.remove('hidden');
+            
+            const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(5));
+            const querySnapshot = await getDocs(q);
+            const tbody = document.getElementById('ranking-body');
+            tbody.innerHTML = '';
+            
+            let rank = 1;
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const row = `<tr><td>${rank++}</td><td>${data.nickname}</td><td>${data.score}</td></tr>`;
+                tbody.innerHTML += row;
+            });
+        }
+    </script>
+</body>
+</html>
